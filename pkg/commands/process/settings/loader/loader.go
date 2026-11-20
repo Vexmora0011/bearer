@@ -11,6 +11,8 @@ import (
 	"github.com/bearer/bearer/pkg/engine"
 	"github.com/bearer/bearer/pkg/flag"
 	flagtypes "github.com/bearer/bearer/pkg/flag/types"
+	"github.com/bearer/bearer/pkg/scanner/rulecheck"
+	"github.com/bearer/bearer/pkg/structurederrors"
 	"github.com/bearer/bearer/pkg/util/ignore"
 	"github.com/bearer/bearer/pkg/version_check"
 )
@@ -26,6 +28,11 @@ func FromOptions(
 		return settings.Config{}, fmt.Errorf("failed to load policies: %w", err)
 	}
 
+	var errorCollector *structurederrors.Collector
+	if opts.ReportOptions.IncludeStructuredErrors {
+		errorCollector = structurederrors.New()
+	}
+
 	result, err := rules.Load(
 		opts.ExternalRuleDir,
 		opts.RuleOptions,
@@ -33,10 +40,15 @@ func FromOptions(
 		engine,
 		opts.ScanOptions.Force,
 		foundLanguageIDs,
+		errorCollector,
 	)
 	if err != nil {
 		return settings.Config{}, err
 	}
+
+	// With structured errors enabled, broken custom rules are reported and removed here instead of
+	// failing the scan when the workers compile them
+	rulecheck.Check(engine.GetLanguages(), result.Rules, errorCollector)
 
 	ignoredFingerprints, _, _, err := ignore.GetIgnoredFingerprints(opts.GeneralOptions.IgnoreFile, &opts.ScanOptions.Target)
 	if err != nil {
@@ -69,6 +81,7 @@ func FromOptions(
 		BuiltInRules:        result.BuiltInRules,
 		CacheUsed:           result.CacheUsed,
 		BearerRulesVersion:  result.BearerRulesVersion,
+		StructuredErrors:    errorCollector,
 	}
 
 	if config.Scan.Diff {

@@ -37,39 +37,89 @@ func New(
 	querySet *query.Set,
 	rule *ruleset.Rule,
 ) (detectortypes.Detector, error) {
-	variableShape := variableShapeSet.Shape(rule)
-
 	var compiledPatterns []Pattern
-	for i, pattern := range rule.Patterns() {
-		patternQuery, err := patternquery.Compile(
-			language,
-			querySet,
-			rule.ID(),
-			i,
-			pattern.Pattern,
-			pattern.Focus,
-			variableShape,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error compiling pattern: %s", err)
-		}
-
-		filter, err := translateFiltersTop(ruleSet, variableShapeSet, variableShapeSet.Shape(rule), pattern.Filters)
+	for i := range rule.Patterns() {
+		compiledPattern, err := compilePattern(language, ruleSet, variableShapeSet, querySet, rule, i)
 		if err != nil {
 			return nil, err
 		}
 
-		compiledPatterns = append(compiledPatterns, Pattern{
-			Index:   i,
-			Pattern: pattern.Pattern,
-			Query:   patternQuery,
-			Filter:  filter,
-		})
+		compiledPatterns = append(compiledPatterns, compiledPattern)
 	}
 
 	return &Detector{
 		patterns: compiledPatterns,
 		rule:     rule,
+	}, nil
+}
+
+// PatternError is returned by compilePattern, saying which part of the pattern failed
+type PatternError struct {
+	// IsFilter is true when the pattern compiled but its filters did not
+	IsFilter bool
+	Err      error
+}
+
+func (err *PatternError) Error() string {
+	if err.IsFilter {
+		return err.Err.Error()
+	}
+
+	return fmt.Sprintf("error compiling pattern: %s", err.Err)
+}
+
+func (err *PatternError) Unwrap() error {
+	return err.Err
+}
+
+// ValidatePattern compiles a single pattern of the rule, with its filters, into the given query set.
+// Any error is a *PatternError.
+func ValidatePattern(
+	language language.Language,
+	ruleSet *ruleset.Set,
+	variableShapeSet *variableshape.Set,
+	querySet *query.Set,
+	rule *ruleset.Rule,
+	patternIndex int,
+) error {
+	_, err := compilePattern(language, ruleSet, variableShapeSet, querySet, rule, patternIndex)
+	return err
+}
+
+func compilePattern(
+	language language.Language,
+	ruleSet *ruleset.Set,
+	variableShapeSet *variableshape.Set,
+	querySet *query.Set,
+	rule *ruleset.Rule,
+	patternIndex int,
+) (Pattern, error) {
+	pattern := rule.Patterns()[patternIndex]
+	variableShape := variableShapeSet.Shape(rule)
+
+	patternQuery, err := patternquery.Compile(
+		language,
+		querySet,
+		rule.ID(),
+		patternIndex,
+		pattern.Pattern,
+		pattern.Focus,
+		variableShape,
+	)
+	if err != nil {
+		return Pattern{}, &PatternError{Err: err}
+	}
+
+	filter, err := translateFiltersTop(ruleSet, variableShapeSet, variableShape, pattern.Filters)
+	if err != nil {
+		return Pattern{}, &PatternError{IsFilter: true, Err: err}
+	}
+
+	return Pattern{
+		Index:   patternIndex,
+		Pattern: pattern.Pattern,
+		Query:   patternQuery,
+		Filter:  filter,
 	}, nil
 }
 
