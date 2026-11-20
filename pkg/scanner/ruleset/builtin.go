@@ -40,3 +40,15 @@ var (
 		BuiltinStringLiteralRule,
 	}
 )
+
+// IsBuiltinRuleID returns whether the ID belongs to one of the engine's built-in rules, which other
+// rules cannot use
+func IsBuiltinRuleID(id string) bool {
+	for _, rule := range builtinRules {
+		if rule.id == id {
+			return true
+		}
+	}
+
+	return false
+}

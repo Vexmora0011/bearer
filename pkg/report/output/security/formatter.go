@@ -16,6 +16,7 @@ import (
 	"github.com/bearer/bearer/pkg/report/output/reviewdog"
 	"github.com/bearer/bearer/pkg/report/output/sarif"
 	outputtypes "github.com/bearer/bearer/pkg/report/output/types"
+	"github.com/bearer/bearer/pkg/structurederrors"
 	outputhandler "github.com/bearer/bearer/pkg/util/output"
 )
 
@@ -34,6 +35,8 @@ type JsonV2Output struct {
 	Findings RawFindings           `json:"findings" yaml:"findings"`
 	Expected ExpectedDetections    `json:"expected_findings,omitempty" yaml:"expected_findings,omitempty"`
 	Errors   []dataflowtypes.Error `json:"errors" yaml:"errors"`
+	// StructuredErrors is only present when the include-structured-errors option is enabled
+	StructuredErrors *structurederrors.Report `json:"structured_errors,omitempty" yaml:"structured_errors,omitempty"`
 }
 
 func NewFormatter(
@@ -85,6 +88,9 @@ func (f Formatter) Format(format string) (output string, err error) {
 			Findings: f.ReportData.RawFindings,
 			Expected: f.ReportData.ExpectedDetections,
 			Errors:   f.ReportData.Dataflow.Errors,
+			StructuredErrors: f.Config.StructuredErrors.BuildReport(
+				scanErrorsForStructuredErrors(f.ReportData.Dataflow.Errors),
+			),
 		})
 	case flag.FormatYAML:
 		return outputhandler.ReportYAML(f.ReportData.FindingsBySeverity)
@@ -102,4 +108,13 @@ func (f Formatter) Format(format string) (output string, err error) {
 	}
 
 	return output, err
+}
+
+func scanErrorsForStructuredErrors(errors []dataflowtypes.Error) []structurederrors.ScanError {
+	result := make([]structurederrors.ScanError, len(errors))
+	for i, err := range errors {
+		result[i] = structurederrors.ScanError{File: err.Filename, Message: err.Error}
+	}
+
+	return result
 }
